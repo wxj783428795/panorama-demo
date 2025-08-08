@@ -1,155 +1,91 @@
 "use client";
-import React, { useEffect, useRef } from "react";
+import React, { useRef, useState } from "react";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { OrbitControls, useTexture } from "@react-three/drei";
 import * as THREE from "three";
-const PanoramaThree = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    // 创建场景、相机和渲染器
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      canvas.clientWidth / canvas.clientHeight,
-      0.1,
-      1000
-    );
-    const renderer = new THREE.WebGLRenderer({ canvas: canvas });
-    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // 创建球体几何体
-    const geometry = new THREE.SphereGeometry(500, 60, 40);
-    geometry.scale(-1, 1, 1); // 反转球体
-
-    // 加载全景纹理
-    const texture = new THREE.TextureLoader().load("/alma.jpg");
-    const material = new THREE.MeshBasicMaterial({ map: texture });
-
-    // 创建球体网格
-    const sphere = new THREE.Mesh(geometry, material);
-    scene.add(sphere);
-
-    // 创建标识物
-    const markerTexture = new THREE.TextureLoader().load("/turborepo-light.svg");
-    const markerMaterial = new THREE.SpriteMaterial({ map: markerTexture });
-    const marker = new THREE.Sprite(markerMaterial);
-    marker.position.set(100, 100, -200); // 设置标识物在3D空间中的位置
-    marker.scale.set(320, 20, 1); // 设置标识物的大小
-    sphere.add(marker); // 将标识物添加为球体的子对象，使其随球体旋转
-
-    // 设置相机位置
-    camera.position.set(0, 0, 0.1);
-
-    // 添加鼠标控制
-    let isDragging = false;
-    let previousMousePosition = { x: 0, y: 0 };
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    let isAnimating = false;
-    const targetRotation = new THREE.Euler();
-
-    const onMouseDown = (event: MouseEvent) => {
-      isDragging = true;
-      isAnimating = false; // Stop animation on drag
-      previousMousePosition = { x: event.clientX, y: event.clientY };
-    };
-
-    const onMouseUp = () => {
-      isDragging = false;
-    };
-
-    const onMouseMove = (event: MouseEvent) => {
-      if (!isDragging) return;
-
-      const deltaMove = {
-        x: event.clientX - previousMousePosition.x,
-        y: event.clientY - previousMousePosition.y,
-      };
-
-      const rotationSpeed = 0.005;
-      sphere.rotation.y += deltaMove.x * rotationSpeed;
-      sphere.rotation.x += deltaMove.y * rotationSpeed;
-
-      previousMousePosition = { x: event.clientX, y: event.clientY };
-    };
-
-    const onMouseWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const zoomSpeed = 0.05;
-      camera.fov += event.deltaY * zoomSpeed;
-      camera.fov = THREE.MathUtils.clamp(camera.fov, 30, 120);
-      camera.updateProjectionMatrix();
-    };
-
-    const onCanvasClick = (event: MouseEvent) => {
-      if (isDragging) return; // Don't trigger on drag end
-
-      mouse.x = (event.clientX / canvas.clientWidth) * 2 - 1;
-      mouse.y = -(event.clientY / canvas.clientHeight) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObject(marker);
-
-      if (intersects.length > 0) {
-        // Calculate target rotation to look at the marker
-        const markerPosition = marker.position.clone();
-        const phi = Math.atan2(markerPosition.y, Math.sqrt(markerPosition.x * markerPosition.x + markerPosition.z * markerPosition.z));
-        const theta = Math.atan2(markerPosition.x, markerPosition.z);
-
-        targetRotation.x = -phi;
-        targetRotation.y = -theta;
-        isAnimating = true;
-      }
-    };
-
-    canvas.addEventListener("mousedown", onMouseDown);
-    canvas.addEventListener("mouseup", onMouseUp);
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mouseleave", onMouseUp); // Handle mouse leaving the canvas
-    canvas.addEventListener("wheel", onMouseWheel);
-    canvas.addEventListener("click", onCanvasClick);
-
-
-    // 动画循环
-    let animationFrameId: number;
-    function animate() {
-      animationFrameId = requestAnimationFrame(animate);
-
-      if (isAnimating) {
-        sphere.rotation.x = THREE.MathUtils.lerp(sphere.rotation.x, targetRotation.x, 0.05);
-        sphere.rotation.y = THREE.MathUtils.lerp(sphere.rotation.y, targetRotation.y, 0.05);
-
-        if (Math.abs(sphere.rotation.y - targetRotation.y) < 0.001 && Math.abs(sphere.rotation.x - targetRotation.x) < 0.001) {
-          isAnimating = false;
-        }
-      }
-
-      renderer.render(scene, camera);
-    }
-    animate();
-
-    // Cleanup
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-      canvas.removeEventListener("mousedown", onMouseDown);
-      canvas.removeEventListener("mouseup", onMouseUp);
-      canvas.removeEventListener("mousemove", onMouseMove);
-      canvas.removeEventListener("mouseleave", onMouseUp);
-      canvas.removeEventListener("wheel", onMouseWheel);
-      canvas.removeEventListener("click", onCanvasClick);
-      renderer.dispose();
-      geometry.dispose();
-      material.dispose();
-      texture.dispose();
-      markerTexture.dispose();
-      markerMaterial.dispose();
-    };
-  }, []);
+// 标识物组件
+const Marker = ({ position, onClick }: { position: THREE.Vector3; onClick: (position: THREE.Vector3) => void }) => {
+  const texture = useTexture("/goodwe.png");
 
   return (
+    <sprite
+      position={position}
+      scale={[132, 20, 1]}
+      onClick={(e) => {
+        e.stopPropagation(); // 阻止事件冒泡到球体
+        console.log('e.object.position', e.object.position)
+        onClick(e.object.position);
+      }}
+    >
+      <spriteMaterial map={texture} />
+    </sprite>
+  );
+};
+
+// 全景球体和场景逻辑组件
+const SceneContent = () => {
+  const groupRef = useRef<THREE.Group>(null!);
+  const controlsRef = useRef<any>(null!);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [targetPosition, setTargetPosition] = useState<THREE.Vector3 | null>(
+    null
+  );
+
+  const panoramaTexture = useTexture("/alma.jpg");
+
+  // 点击标识物的处理函数
+  const handleMarkerClick = (position: THREE.Vector3) => {
+    setTargetPosition(position.clone().normalize().multiplyScalar(0.1)); // 计算目标位置
+    setIsAnimating(true);
+  };
+
+  // useFrame 会在每一帧执行
+  useFrame((state, delta) => {
+    if (isAnimating && targetPosition) {
+      // 平滑地将相机移动到目标位置
+      state.camera.position.lerp(targetPosition, 0.05);
+
+      // 当相机接近目标时停止动画
+      if (state.camera.position.distanceTo(targetPosition) < 0.01) {
+        setIsAnimating(false);
+        setTargetPosition(null);
+      }
+    } else if (controlsRef.current) {
+      // 如果没有动画且用户没有交互，则自动旋转
+      if (!controlsRef.current.getAzimuthalAngle) return;
+      const isUserInteracting = controlsRef.current.getAzimuthalAngle() !== 0 || controlsRef.current.getPolarAngle() !== Math.PI / 2;
+      if (!isUserInteracting) {
+         groupRef.current.rotation.y += delta * 0.1; // 自动漫游
+      }
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh>
+        <sphereGeometry args={[500, 60, 40]} />
+        <meshBasicMaterial map={panoramaTexture} side={THREE.BackSide} />
+      </mesh>
+      <Marker position={new THREE.Vector3(50, 50, -400)} onClick={handleMarkerClick} />
+    </group>
+  );
+};
+
+// 主组件
+const PanoramaThree = () => {
+  return (
     <div className="w-full h-full">
-      <canvas className="w-full h-full"  ref={canvasRef} id="canvas" />
+      <Canvas>
+        <SceneContent />
+        <OrbitControls
+          enableZoom={true}
+          enablePan={false}
+          minDistance={0.1}
+          maxDistance={350}
+          rotateSpeed={-0.5} // 反转拖拽方向以匹配直觉
+        />
+      </Canvas>
     </div>
   );
 };
