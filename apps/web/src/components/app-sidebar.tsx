@@ -58,7 +58,7 @@ const data = {
       isActive: true,
       items: [
         {
-          title: "three",
+          title: "three-等距柱状投影",
           url: "/three",
         },
         // {

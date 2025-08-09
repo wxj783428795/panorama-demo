@@ -1,25 +1,91 @@
 "use client";
-import React, { useRef, useState } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
-import { OrbitControls, useTexture } from "@react-three/drei";
+import React, { useRef, useState, useLayoutEffect } from "react";
+import { Canvas, useFrame, extend } from "@react-three/fiber";
+import { OrbitControls, useTexture, shaderMaterial } from "@react-three/drei";
 import * as THREE from "three";
+
+// Extend shaderMaterial to be used in JSX
+const PanoramaTransitionMaterial = shaderMaterial(
+  {
+    mixFactor: 0.0,
+    texture1: new THREE.Texture(),
+    texture2: new THREE.Texture(),
+  },
+  // Vertex Shader
+  `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  // Fragment Shader
+  `
+    uniform float mixFactor;
+    uniform sampler2D texture1;
+    uniform sampler2D texture2;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 tex1 = texture2D(texture1, vUv);
+      vec4 tex2 = texture2D(texture2, vUv);
+      gl_FragColor = mix(tex1, tex2, mixFactor);
+    }
+  `
+);
+
+extend({ PanoramaTransitionMaterial });
 
 // 标识物组件
 const Marker = ({ position, onClick }: { position: THREE.Vector3; onClick: (position: THREE.Vector3) => void }) => {
-  const texture = useTexture("/goodwe.png");
+  const meshRef = useRef<THREE.Mesh>(null!);
+
+  // Create an arrow shape
+  const arrowShape = new THREE.Shape();
+  // Define arrow dimensions
+  const width = 20;
+  const length = 40;
+  const headWidth = 40;
+  const headLength = 20;
+
+  // Define arrow path
+  arrowShape.moveTo(-width / 2, 0);
+  arrowShape.lineTo(-width / 2, length - headLength);
+  arrowShape.lineTo(-headWidth / 2, length - headLength);
+  arrowShape.lineTo(0, length);
+  arrowShape.lineTo(headWidth / 2, length - headLength);
+  arrowShape.lineTo(width / 2, length - headLength);
+  arrowShape.lineTo(width / 2, 0);
+  arrowShape.closePath();
+
+  useLayoutEffect(() => {
+    if (meshRef.current) {
+      // The normal to the sphere at `position` is the direction of `position` itself.
+      const normal = position.clone().normalize();
+      // The default normal of the shape (which is in the XY plane) is along the Z axis.
+      const defaultNormal = new THREE.Vector3(0, 1, 1);
+      // Create a quaternion to rotate from the default normal to the sphere normal.
+      const quaternion = new THREE.Quaternion().setFromUnitVectors(
+        defaultNormal,
+        normal
+      );
+      // Apply the rotation.
+      meshRef.current.quaternion.copy(quaternion);
+    }
+  }, [position]);
 
   return (
-    <sprite
+    <mesh
+      ref={meshRef}
       position={position}
-      scale={[132, 20, 1]}
       onClick={(e) => {
         e.stopPropagation(); // 阻止事件冒泡到球体
-        console.log('e.object.position', e.object.position)
         onClick(e.object.position);
       }}
     >
-      <spriteMaterial map={texture} />
-    </sprite>
+      <shapeGeometry args={[arrowShape]} />
+      <meshBasicMaterial color="#ff0000" side={THREE.DoubleSide} />
+    </mesh>
   );
 };
 
@@ -27,36 +93,46 @@ const Marker = ({ position, onClick }: { position: THREE.Vector3; onClick: (posi
 const SceneContent = () => {
   const groupRef = useRef<THREE.Group>(null!);
   const controlsRef = useRef<any>(null!);
+  const materialRef = useRef<any>(null!);
   const [isAnimating, setIsAnimating] = useState(false);
-  const [targetPosition, setTargetPosition] = useState<THREE.Vector3 | null>(
-    null
-  );
+  const [targetPosition, setTargetPosition] = useState<THREE.Vector3 | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState(1);
+  const [currentTextureIndex, setCurrentTextureIndex] = useState(0);
 
-  const panoramaTexture = useTexture("/alma.jpg");
+  const textures = useTexture(['/2.jpg', '/1.jpg']);
 
   // 点击标识物的处理函数
   const handleMarkerClick = (position: THREE.Vector3) => {
-    setTargetPosition(position.clone().normalize().multiplyScalar(0.1)); // 计算目标位置
-    setIsAnimating(true);
+    // setTargetPosition(position.clone().multiplyScalar(0.1));
+    // setIsAnimating(true);
+    setIsTransitioning(true);
+    setTransitionDirection(currentTextureIndex === 0 ? 1 : -1);
   };
 
-  // useFrame 会在每一帧执行
   useFrame((state, delta) => {
     if (isAnimating && targetPosition) {
-      // 平滑地将相机移动到目标位置
       state.camera.position.lerp(targetPosition, 0.05);
-
-      // 当相机接近目标时停止动画
       if (state.camera.position.distanceTo(targetPosition) < 0.01) {
         setIsAnimating(false);
         setTargetPosition(null);
       }
     } else if (controlsRef.current) {
-      // 如果没有动画且用户没有交互，则自动旋转
       if (!controlsRef.current.getAzimuthalAngle) return;
       const isUserInteracting = controlsRef.current.getAzimuthalAngle() !== 0 || controlsRef.current.getPolarAngle() !== Math.PI / 2;
       if (!isUserInteracting) {
-         groupRef.current.rotation.y += delta * 0.1; // 自动漫游
+         groupRef.current.rotation.y += delta * 0.1;
+      }
+    }
+
+    if (isTransitioning && materialRef.current) {
+      const targetMixFactor = transitionDirection === 1 ? 1 : 0;
+      materialRef.current.mixFactor = THREE.MathUtils.lerp(materialRef.current.mixFactor, targetMixFactor, 0.05);
+
+      if (Math.abs(materialRef.current.mixFactor - targetMixFactor) < 0.01) {
+        materialRef.current.mixFactor = targetMixFactor;
+        setIsTransitioning(false);
+        setCurrentTextureIndex(transitionDirection === 1 ? 1 : 0);
       }
     }
   });
@@ -65,9 +141,10 @@ const SceneContent = () => {
     <group ref={groupRef}>
       <mesh>
         <sphereGeometry args={[500, 60, 40]} />
-        <meshBasicMaterial map={panoramaTexture} side={THREE.BackSide} />
+        {/* @ts-ignore */}
+        <panoramaTransitionMaterial ref={materialRef} texture1={textures[0]} texture2={textures[1]} side={THREE.BackSide} />
       </mesh>
-      <Marker position={new THREE.Vector3(50, 50, -400)} onClick={handleMarkerClick} />
+      <Marker position={new THREE.Vector3(90, -150, -400)} onClick={handleMarkerClick} />
     </group>
   );
 };
@@ -83,7 +160,7 @@ const PanoramaThree = () => {
           enablePan={false}
           minDistance={0.1}
           maxDistance={350}
-          rotateSpeed={-0.5} // 反转拖拽方向以匹配直觉
+          rotateSpeed={-0.5}
         />
       </Canvas>
     </div>
